@@ -135,7 +135,32 @@ export class AirConditionerPlatformAccessory {
     this.platform.log.debug('Triggered GET WindFreeSwitch');
 
     const deviceStatus = await this.getDeviceStatus();
-    const windFreeSwitchStatus = deviceStatus['custom.airConditionerOptionalMode'].acOptionalMode.value as AirConditionerOptionalMode;
+
+    // Check if the custom.airConditionerOptionalMode property exists
+    if (!deviceStatus['custom.airConditionerOptionalMode']) {
+      this.platform.log.debug('custom.airConditionerOptionalMode property not found in device status');
+      return false;
+    }
+
+    // Log the structure of the custom.airConditionerOptionalMode property
+    this.platform.log.debug('custom.airConditionerOptionalMode property:', JSON.stringify(deviceStatus['custom.airConditionerOptionalMode']));
+
+    // Try to access the WindFree mode state using different possible property paths
+    let windFreeSwitchStatus: AirConditionerOptionalMode;
+
+    if (deviceStatus['custom.airConditionerOptionalMode'].acOptionalMode && 
+        deviceStatus['custom.airConditionerOptionalMode'].acOptionalMode.value !== undefined) {
+      windFreeSwitchStatus = deviceStatus['custom.airConditionerOptionalMode'].acOptionalMode.value as AirConditionerOptionalMode;
+    } else if (deviceStatus['custom.airConditionerOptionalMode'].airConditionerOptionalMode && 
+               deviceStatus['custom.airConditionerOptionalMode'].airConditionerOptionalMode.value !== undefined) {
+      windFreeSwitchStatus = deviceStatus['custom.airConditionerOptionalMode'].airConditionerOptionalMode.value as AirConditionerOptionalMode;
+    } else if (deviceStatus['custom.airConditionerOptionalMode'].value !== undefined) {
+      windFreeSwitchStatus = deviceStatus['custom.airConditionerOptionalMode'].value as AirConditionerOptionalMode;
+    } else {
+      this.platform.log.debug('Could not find WindFree mode state in device status');
+      return false;
+    }
+
     const airConditionerMode = deviceStatus.airConditionerMode.airConditionerMode.value as AirConditionerMode;
 
     if (airConditionerMode === AirConditionerMode.Auto) {
@@ -157,6 +182,17 @@ export class AirConditionerPlatformAccessory {
       return;
     }
 
+    // Try different command combinations to set the WindFree mode
+    const commands = [
+      {
+        capability: 'custom.airConditionerOptionalMode',
+        command: 'setAcOptionalMode',
+        arguments: value ? [AirConditionerOptionalMode.WindFree] : [AirConditionerOptionalMode.Off],
+      }
+    ];
+
+    this.platform.log.debug('Sending commands to set WindFreeSwitch:', JSON.stringify(commands));
+
     const response = await fetch(this.commandURL, {
       method: 'POST',
       headers: {
@@ -164,18 +200,38 @@ export class AirConditionerPlatformAccessory {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        commands: [
-          {
-            capability: 'custom.airConditionerOptionalMode',
-            command: 'setAcOptionalMode',
-            arguments: value ? [AirConditionerOptionalMode.WindFree] : [AirConditionerOptionalMode.Off],
-          },
-        ],
+        commands: commands,
       }),
     });
 
     if (!response.ok) {
-      this.platform.log.error('Failed to set WindFreeSwitch');
+      this.platform.log.error('Failed to set WindFreeSwitch with setAcOptionalMode command');
+
+      // Try with a different command if the first one failed
+      const alternativeCommands = [
+        {
+          capability: 'custom.airConditionerOptionalMode',
+          command: 'setAirConditionerOptionalMode',
+          arguments: value ? [AirConditionerOptionalMode.WindFree] : [AirConditionerOptionalMode.Off],
+        }
+      ];
+
+      this.platform.log.debug('Trying alternative commands to set WindFreeSwitch:', JSON.stringify(alternativeCommands));
+
+      const alternativeResponse = await fetch(this.commandURL, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + this.platform.config.AccessToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          commands: alternativeCommands,
+        }),
+      });
+
+      if (!alternativeResponse.ok) {
+        this.platform.log.error('Failed to set WindFreeSwitch with setAirConditionerOptionalMode command');
+      }
     }
   }
 
